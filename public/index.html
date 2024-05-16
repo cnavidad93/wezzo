@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en" class="bg-zinc-900">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Simple Websocket</title>
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="./assets/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="./assets/favicon-16x16.png">
+  <link rel="manifest" href="./assets/site.webmanifest">
+  <link rel="mask-icon" href="./assets/safari-pinned-tab.svg" color="#5bbad5">
+  <meta name="msapplication-TileColor" content="#da532c">
+  <meta name="theme-color" content="#ffffff">
+  <link rel="stylesheet" href="./tailwind.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.31.1/ace.min.js"></script>
+</head>
+
+<body
+  class="m-0 w-screen h-screen bg-stone-200 flex flex-col justify-center items-center dark:bg-zinc-900 transition-colors ease-in-out duration-100">
+  <section class="w-1/3 min-w-[600px] flex justify-end py-2">
+    <label class="switch">
+      <input type="checkbox" id="theme-input">
+      <span class="slider round shadow-md"></span>
+    </label>
+  </section>
+  <main
+    class="w-1/3 min-w-[600px] rounded-md bg-stone-100 p-9 shadow-md dark:bg-gray-800 transition-colors ease-in-out duration-100">
+    <p id="ws-url" class="mb-6 font-semibold dark:text-white"></p>
+    <div class="flex flex-row">
+      <div
+        class="font-semibold bg-stone-200 flex justify-center items-center p-2 border-stone-300 border h-10 rounded-l-md border-r-0 text-sm dark:text-white dark:bg-gray-700 dark:border-gray-800 transition-colors ease-in-out duration-100">
+        DESTINATION</div>
+      <input type="text" id="destination-input"
+        class="w-full h-10 border border-stone-300 p-2 rounded-r-md bg-stone-200 focus:bg-zinc-100 outline-none hover:bg-[#dddddd] text-sm dark:text-white dark:bg-gray-700 dark:border-gray-800 dark:hover:bg-[#1a232f] dark:focus:bg-gray-900 transition-colors ease-in-out duration-100"
+        placeholder="/test">
+      <button id="send-button"
+        class="rounded-md text-sm text-white bg-blue-500 outline-blue-500 hover:bg-blue-600 px-4 font-semibold ml-6">
+        Send
+      </button>
+    </div>
+
+    <div id="jsoneditor" class="w-full h-80 mt-4 rounded-md border border-stone-300 dark:border-gray-800"></div>
+
+    <span id="clear-data"
+      class="text-xs text-stone-500 hover:text-stone-600 cursor-pointer dark:text-stone-300 dark:hover:text-stone-400">Clear</span>
+  </main>
+  <div id="toast-list" class="absolute bottom-0 right-0 m-4">
+  </div>
+</body>
+<script type="module">
+  const sendButton = document.getElementById("send-button");
+  const clearButton = document.getElementById("clear-data");
+  const destinationInput = document.getElementById("destination-input");
+  const themeInput = document.getElementById("theme-input");
+  const wsUrl = document.getElementById("ws-url");
+  const editor = ace.edit("jsoneditor");
+
+  editor.setTheme("ace/theme/kuroir");
+  editor.session.setMode("ace/mode/json");
+  editor.setKeyboardHandler("ace/keyboard/vscode");
+
+  loadFromStorage();
+
+  sendButton.addEventListener("click", sendMessage);
+  clearButton.addEventListener("click", clearData);
+  themeInput.addEventListener("change", (e) => {
+    const isDark = e.target.checked;
+    changeTheme(isDark ? 'dark' : 'light');
+  });
+
+  wsUrl.innerText = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+
+  function changeTheme(theme = dark) {
+    const isDark = theme === 'dark';
+
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      editor.setTheme("ace/theme/dracula");
+    } else {
+      document.documentElement.classList.remove('dark');
+      editor.setTheme("ace/theme/kuroir");
+    }
+
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  }
+
+  function loadFromStorage() {
+    const message = localStorage.getItem('message');
+    const destination = localStorage.getItem('destination');
+    const theme = localStorage.getItem('theme');
+
+    if (theme !== null) {
+      themeInput.checked = theme === 'dark';
+      changeTheme(theme);
+    }
+
+    if (message !== null) {
+      editor.setValue(message);
+    }
+
+    if (destination !== null) {
+      destinationInput.value = destination;
+    }
+  }
+
+  function clearData() {
+    localStorage.removeItem('message');
+    localStorage.removeItem('destination');
+    editor.setValue('');
+    destinationInput.value = '';
+  }
+
+  function getJsonMessage() {
+    localStorage.setItem('message', editor.getValue());
+    const message = editor.getValue().replace(/\r\n/g, '').replaceAll(' ', '');
+    if (message === '') return '';
+
+    try {
+      return JSON.parse(message);
+    } catch (e) {
+      console.log(e);
+      showError("Invalid JSON");
+      return null;
+    }
+  }
+
+  function getDestination() {
+    localStorage.setItem('destination', destinationInput.value);
+    const destination = destinationInput.value;
+    if (destination === '') {
+      showError("Destination is empty");
+      return null;
+    }
+
+    if (destination[0] !== '/') {
+      showError("Destination must start with '/'");
+      return null;
+    }
+
+    return destination;
+  }
+
+  function sendMessage() {
+    const destination = getDestination();
+    const message = getJsonMessage();
+
+    console.log(destination, message);
+
+    if (destination === null || message === null) return;
+
+    fetch(`${window.location.origin}/event`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        destination,
+        message,
+      }),
+    }
+    ).then((res) => {
+      if (res.status === 200) {
+        showSuccess("Message sent");
+      } else {
+        showError("Message not sent");
+      }
+    }).catch((e) => {
+      console.log(e);
+      showError("Message not sent");
+    });
+  }
+
+  function showError(message = "") {
+    showAlert(message, 'error');
+  }
+
+  function showSuccess(message = "") {
+    showAlert(message, 'success');
+  }
+
+  function showAlert(message = "", type = "error") {
+    const styles = {
+      error: ['border-red-700', 'bg-red-200'],
+      success: ['border-green-700', 'bg-green-200'],
+    }
+    const titles = {
+      error: 'Error: ',
+      success: 'Success: ',
+    }
+
+    const toastList = document.getElementById('toast-list');
+    const toast = document.createElement('div');
+
+    const classes = styles[type] ?? styles['error'];
+    const title = titles[type] ?? titles['error'];
+    toast.classList.add('w-96', 'px-6', 'py-4', 'rounded-md', 'border-l-8', 'opacity-0', 'transition-opacity', 'ease-in-out', 'duration-300', 'mb-2', ...classes);
+    toast.innerHTML = `
+      <span class="font-semibold text-lg">${title}</span>
+      <span class="block">${message}</span>
+    `;
+
+    toastList.appendChild(toast);
+
+
+
+    setTimeout(() => {
+      toast.classList.remove('opacity-0');
+      toast.classList.add('opacity-100');
+    }, 300);
+
+    setTimeout(() => {
+      toast.classList.remove('opacity-100');
+      toast.classList.add('opacity-0');
+    }, 4000);
+  }
+</script>
+
+</html>
