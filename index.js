@@ -4,6 +4,10 @@ import StompServer from 'stomp-broker-js';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
   console.log('[WZ] Options:');
@@ -69,7 +73,7 @@ app.post('/event', (req, res) => {
   }
 });
 
-app.use('/', express.static(path.join(process.cwd(), 'public')));
+app.use('/', express.static(path.join(__dirname, 'public')));
 
 console.log(`[WZ] Websocket url: ws://localhost:${port}/ws`);
 console.log(`[WZ] UI url: localhost:${port}`);
